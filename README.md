@@ -11,9 +11,6 @@ PX4 OFFBOARD 参考轨迹跟踪节点。读取 `src/uav0.csv` 中的平面参考
 
 ## 构建
 
-本包的构建产物默认输出到包内 `_colcon/` 目录（见 `.gitignore`），
-如果直接在工作空间根目录构建，用标准方式即可：
-
 ```bash
 cd ~/ws_ros2
 colcon build --packages-select drones_pkg

@@ -1,8 +1,8 @@
-# 构建产物（本会话沙盒只能写入包目录，因此构建输出落在包内）
-_colcon/
+# 构建产物（标准 colcon 位置在工作空间根目录，此处兜底）
 build/
 install/
 log/
+_colcon/
 
 # 编辑器 / 系统
 .vscode/
