@@ -20,8 +20,6 @@ ament_target_dependencies(trajectory_follower rclcpp px4_msgs)
 
 add_executable(trajectory_visualizer src/trajectory_visualizer.cpp)
 target_include_directories(trajectory_visualizer PRIVATE include)
-target_compile_definitions(trajectory_visualizer PRIVATE
-  "PKG_SRC_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/src\"")
 ament_target_dependencies(trajectory_visualizer rclcpp px4_msgs nav_msgs visualization_msgs)
 
 install(TARGETS trajectory_follower trajectory_visualizer
