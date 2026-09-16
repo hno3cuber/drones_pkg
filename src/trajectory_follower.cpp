@@ -64,10 +64,10 @@ TrajectoryFollower::TrajectoryFollower(const rclcpp::NodeOptions & options)
 
   const std::string ns = "/fmu";
   sub_local_pos_ = create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-    ns + "/out/vehicle_local_position", qos,
+    ns + "/out/vehicle_local_position_v1", qos,
     std::bind(&TrajectoryFollower::onLocalPosition, this, std::placeholders::_1));
   sub_status_ = create_subscription<px4_msgs::msg::VehicleStatus>(
-    ns + "/out/vehicle_status", qos,
+    ns + "/out/vehicle_status_v1", qos,
     std::bind(&TrajectoryFollower::onVehicleStatus, this, std::placeholders::_1));
 
   pub_offboard_mode_ = create_publisher<px4_msgs::msg::OffboardControlMode>(

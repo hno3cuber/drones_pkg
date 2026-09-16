@@ -9,3 +9,6 @@ _colcon/
 .idea/
 *.swp
 .DS_Store
+
+# 工作过程中的临时备份（不参与版本控制）
+.backup/

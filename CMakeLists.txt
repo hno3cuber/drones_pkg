@@ -8,6 +8,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(px4_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 # 把包内 src 目录的绝对路径编译进去，方便节点默认定位 uav0.csv
 add_executable(trajectory_follower src/trajectory_follower.cpp)
@@ -16,7 +18,13 @@ target_compile_definitions(trajectory_follower PRIVATE
   "PKG_SRC_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/src\"")
 ament_target_dependencies(trajectory_follower rclcpp px4_msgs)
 
-install(TARGETS trajectory_follower
+add_executable(trajectory_visualizer src/trajectory_visualizer.cpp)
+target_include_directories(trajectory_visualizer PRIVATE include)
+target_compile_definitions(trajectory_visualizer PRIVATE
+  "PKG_SRC_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/src\"")
+ament_target_dependencies(trajectory_visualizer rclcpp px4_msgs nav_msgs visualization_msgs)
+
+install(TARGETS trajectory_follower trajectory_visualizer
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch params

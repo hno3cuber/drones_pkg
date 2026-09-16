@@ -50,3 +50,24 @@ trajectory_follower:
 
     # 轨迹结束后动作: "hold" 保持终点 / "rtl" 返回起飞点
     end_action: "hold"
+
+    # ------------------------------------------------------------------
+    # 以下参数仅供 trajectory_visualizer 使用（trajectory_follower 会忽略）
+    # 其余同名参数（trajectory_file / dt / frame_is_enu / flight_altitude /
+    # origin_offset_ned_* / approach_speed / loop_trajectory）两个节点共用，
+    # 保证画出来的轨迹与实际跟踪目标严格一致。
+    # ------------------------------------------------------------------
+
+    # RViz 可视坐标系。"odom" 对应 PX4 的 local NED 原点，但轴约定为 ENU
+    # (x=East, y=North, z=Up)；若想直接看 NED 视觉，改成一个绕 z 转 -90° 的 frame
+    frame_id: "map"
+
+    # marker / path 发布频率 [Hz]
+    publish_rate_hz: 10.0
+
+    # false: 参考轨迹贴地显示（推荐，看得清平面走向）
+    # true : 参考轨迹悬在真实飞行高度
+    rviz_real_height: false
+
+    # 实飞航迹最多保留的点数，防止长时间飞行后无限增长
+    path_max_points: 5000
