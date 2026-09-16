@@ -86,6 +86,10 @@ private:
   float distance2d(float x1, float y1, float x2, float y2) const;
 
   // ---- 参数成员 ----
+  // PX4 实例命名空间，多机时分别为 /fmu、/px4_1/fmu、/px4_2/fmu ...
+  std::string node_namespace_{"/fmu"};
+  // 目标 PX4 系统 ID（MAV_SYS_ID），多机时分别为 1、2、3 ...
+  int target_system_{1};
   std::string trajectory_file_;
   double dt_{0.1};
   bool frame_is_enu_{true};

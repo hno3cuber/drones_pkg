@@ -19,6 +19,7 @@ def generate_launch_description():
     """
     pkg_share = get_package_share_directory('drones_pkg')
     default_params = os.path.join(pkg_share, 'params', 'trajectory_follower.yaml')
+    default_traj = os.path.join(pkg_share, 'src', 'uav0.csv')
 
     params_file = LaunchConfiguration('params_file')
     visualizer_only = LaunchConfiguration('visualizer_only')
@@ -36,7 +37,7 @@ def generate_launch_description():
             executable='trajectory_follower',
             name='trajectory_follower',
             output='screen',
-            parameters=[params_file],
+            parameters=[params_file, {'trajectory_file': default_traj}],
             condition=IfCondition(PythonExpression(['not ', visualizer_only])),
         ),
 

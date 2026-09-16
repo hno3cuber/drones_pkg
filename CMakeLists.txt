@@ -11,11 +11,9 @@ find_package(px4_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
-# 把包内 src 目录的绝对路径编译进去，方便节点默认定位 uav0.csv
+# 轨迹文件路径通过参数 trajectory_file 传入（见 launch / params）
 add_executable(trajectory_follower src/trajectory_follower.cpp)
 target_include_directories(trajectory_follower PRIVATE include)
-target_compile_definitions(trajectory_follower PRIVATE
-  "PKG_SRC_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/src\"")
 ament_target_dependencies(trajectory_follower rclcpp px4_msgs)
 
 add_executable(trajectory_visualizer src/trajectory_visualizer.cpp)

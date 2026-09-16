@@ -62,7 +62,7 @@ TrajectoryFollower::TrajectoryFollower(const rclcpp::NodeOptions & options)
   rclcpp::QoS qos(rclcpp::KeepLast(1));
   qos.best_effort().durability_volatile();
 
-  const std::string ns = "/fmu";
+  const std::string ns = node_namespace_;
   sub_local_pos_ = create_subscription<px4_msgs::msg::VehicleLocalPosition>(
     ns + "/out/vehicle_local_position_v1", qos,
     std::bind(&TrajectoryFollower::onLocalPosition, this, std::placeholders::_1));
@@ -103,6 +103,8 @@ TrajectoryFollower::TrajectoryFollower(const rclcpp::NodeOptions & options)
 // ---------------------------------------------------------------------------
 void TrajectoryFollower::declareParameters()
 {
+  node_namespace_ = declare_parameter<std::string>("node_namespace", "/fmu");
+  target_system_ = declare_parameter<int>("target_system", 1);
   trajectory_file_ = declare_parameter<std::string>("trajectory_file", "");
   dt_ = declare_parameter<double>("dt", 0.1);
   frame_is_enu_ = declare_parameter<bool>("frame_is_enu", true);
@@ -137,7 +139,10 @@ bool TrajectoryFollower::loadTrajectory()
 {
   std::string path = trajectory_file_;
   if (path.empty()) {
-    path = std::string(PKG_SRC_DIR) + "/uav0.csv";
+    RCLCPP_ERROR(
+      get_logger(),
+      "trajectory_file is empty; set it explicitly (e.g. via launch/params)");
+    return false;
   }
 
   std::ifstream ifs(path);
@@ -268,7 +273,7 @@ void TrajectoryFollower::publishVehicleCommand(uint32_t command, float p1, float
   msg.command = command;
   msg.param1 = p1;
   msg.param2 = p2;
-  msg.target_system = 1;
+  msg.target_system = static_cast<uint8_t>(target_system_);
   msg.target_component = 1;
   msg.source_system = 1;
   msg.source_component = 1;

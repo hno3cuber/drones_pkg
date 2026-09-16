@@ -1,7 +1,8 @@
 # drones_pkg
 
-PX4 OFFBOARD 参考轨迹跟踪节点。读取 `src/uav0.csv` 中的平面参考轨迹，
-驱动无人机按该轨迹飞行。
+PX4 OFFBOARD 参考轨迹跟踪节点。读取 `src/uav*.csv` 中的平面参考轨迹，
+驱动无人机按该轨迹飞行。支持单机与多机：同一可执行文件通过参数区分身份
+（`node_namespace` / `target_system` / `trajectory_file`）。
 
 ## 依赖
 
@@ -31,15 +32,34 @@ y0,y1,y2,...,yN     <- 第二行：y 坐标
 
 ## 运行
 
+单机：
+
 ```bash
 ros2 launch drones_pkg trajectory_follower.launch.py
 ```
+
+多机（四架，一次启动）：
+
+```bash
+ros2 launch drones_pkg trajectory_follower_multi.launch.py
+```
+
+多机模式下四架的身份与轨迹对应关系：
+
+| 节点名 | node_namespace | target_system | 轨迹 |
+| --- | --- | --- | --- |
+| trajectory_follower_uav0 | `/fmu` | 1 | uav0.csv |
+| trajectory_follower_uav1 | `/px4_1/fmu` | 2 | uav1.csv |
+| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv |
+| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv |
 
 ## 参数
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `trajectory_file` | `""` | 轨迹文件路径，空则用包内 `src/uav0.csv` |
+| `node_namespace` | `/fmu` | PX4 话题命名空间，多机为 `/px4_1/fmu` 等 |
+| `target_system` | `1` | 目标 PX4 系统 ID（MAV_SYS_ID），多机需与实例对应 |
+| `trajectory_file` | `""` | 轨迹文件路径，**必填**，为空则节点启动失败 |
 | `dt` | `0.1` | 相邻点时间步长 [s]（csv 无时间列时使用） |
 | `frame_is_enu` | `true` | 输入是否为 ENU |
 | `flight_altitude` | `5.0` | 目标飞行高度 [m] |
