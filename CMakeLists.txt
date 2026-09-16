@@ -5,22 +5,31 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(px4_msgs REQUIRED)
 
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+# 把包内 src 目录的绝对路径编译进去，方便节点默认定位 uav0.csv
+add_executable(trajectory_follower src/trajectory_follower.cpp)
+target_include_directories(trajectory_follower PRIVATE include)
+target_compile_definitions(trajectory_follower PRIVATE
+  "PKG_SRC_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/src\"")
+ament_target_dependencies(trajectory_follower rclcpp px4_msgs)
+
+install(TARGETS trajectory_follower
+  DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY launch params
+  DESTINATION share/${PROJECT_NAME}
+  OPTIONAL)
+
+install(DIRECTORY src DESTINATION share/${PROJECT_NAME}
+  FILES_MATCHING PATTERN "*.csv")
+install(DIRECTORY include/
+  DESTINATION include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # uncomment the line when a copyright and license is not present in all source files
-  # set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # uncomment the line when this package is not in a git repo
-  # set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 

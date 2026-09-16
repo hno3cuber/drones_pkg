@@ -1,0 +1,11 @@
+# 构建产物（本会话沙盒只能写入包目录，因此构建输出落在包内）
+_colcon/
+build/
+install/
+log/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
