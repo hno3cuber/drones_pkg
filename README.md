@@ -53,6 +53,33 @@ ros2 launch drones_pkg trajectory_follower_multi.launch.py
 | trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv |
 | trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv |
 
+## 实飞航迹可视化
+
+`trajectory_visualizer` 只订阅各架的实飞位置，为每架发一条独立的三维
+航迹话题，便于在 RViz 中**各自配色**区分：
+
+| PX4 命名空间 | 航迹话题 |
+| --- | --- |
+| `/fmu` | `~/fmu/flown_path` |
+| `/px4_1/fmu` | `~/px4_1_fmu/flown_path` |
+| `/px4_2/fmu` | `~/px4_2_fmu/flown_path` |
+| `/px4_3/fmu` | `~/px4_3_fmu/flown_path` |
+
+话题名由命名空间转换而来：去掉前导 `/`，内部 `/` 换成 `_`。
+
+多机 launch 已同时启动可视化节点（订阅四架）：
+
+```bash
+ros2 launch drones_pkg trajectory_follower_multi.launch.py
+```
+
+在 RViz 中为每个 `Path` 话题各加一个 Path 显示插件，颜色自行指定即可。
+单机时可只启动可视化、不启动控制节点：
+
+```bash
+ros2 launch drones_pkg trajectory_visualizer.launch.py visualizer_only:=true
+```
+
 ## 参数
 
 | 参数 | 默认 | 说明 |
@@ -70,6 +97,15 @@ ros2 launch drones_pkg trajectory_follower_multi.launch.py
 | `approach_tolerance` | `0.5` | 判定到达轨迹起点的位置容差 [m] |
 | `loop_trajectory` | `false` | 是否循环播放轨迹 |
 | `end_action` | `hold` | 轨迹结束后动作：`hold` 悬停 / `rtl` 返航 |
+
+以下参数仅供 `trajectory_visualizer` 使用：
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `uav_namespaces` | `["/fmu"]` | 要可视化的 PX4 命名空间列表，每项发一条独立航迹话题 |
+| `frame_id` | `map` | RViz 可视坐标系 |
+| `publish_rate_hz` | `10.0` | 航迹重发频率 [Hz] |
+| `path_max_points` | `5000` | 每条航迹最多保留的点数 |
 
 ## 状态机
 

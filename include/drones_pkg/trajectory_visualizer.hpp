@@ -6,8 +6,8 @@
 // listens and republishes what is already happening on the wire, so it can be
 // started or killed at any time during flight without affecting the vehicle.
 //
-// Publishes:
-//   ~/flown_path      nav_msgs/Path               无人机实飞三维航迹（增量追加）
+// Publishes (每个 uav 一条独立 topic，便于在 RViz 中单独配色):
+//   ~/<uav>/flown_path   nav_msgs/Path   该架无人机的实飞三维航迹（增量追加）
 //
 // 只画无人机自己飞过的三维轨迹，不画任何参考轨迹/进度 marker。
 // 点的 z 直接取 PX4 local position 的真实相对高度（NED 的 -z），
@@ -16,6 +16,8 @@
 // 该节点不读轨迹文件、不参与控制：它只订阅实飞位置并画出轨迹。
 //
 // 参数:
+//   uav_namespaces    string 数组，每项为一个 PX4 实例命名空间
+//                     （如 ["/fmu", "/px4_1/fmu", "/px4_2/fmu", "/px4_3/fmu"]）
 //   frame_id, publish_rate_hz, path_max_points
 
 #ifndef DRONES_PKG__TRAJECTORY_VISUALIZER_HPP_
@@ -27,6 +29,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace drones_pkg
 {
@@ -37,7 +40,28 @@ public:
   explicit TrajectoryVisualizer(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
+  /// 单架无人机的可视化状态：订阅、航迹、跳变检测与发布全在这里。
+  struct UavTrack
+  {
+    std::string ns;
+    rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr sub;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pub;
+    nav_msgs::msg::Path path;
+    double last_x{0.0};
+    double last_y{0.0};
+    bool has_last{false};
+  };
+
   void declareParameters();
+
+  // 语法糖：命名空间 "/fmu" -> 话题后缀需拼 "/out/..."，而用于 topic 名的
+  // uav 标识则是去掉前导 '/' 并把内部 '/' 换成 '_'，例如 "/px4_1/fmu"
+  // -> "px4_1_fmu"。
+  static std::string sanitizeName(const std::string & ns);
+
+  // 向单架航迹追加一个点（含分段与容量裁剪），由各自的订阅回调调用
+  void appendPoint(
+    UavTrack & track, const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
 
   // ---- 坐标换算 ----
   /// NED -> RViz 可视坐标 (East, North)，返回 {x, y}
@@ -47,23 +71,14 @@ private:
   void onTimer();
 
   // ---- 参数 ----
+  std::vector<std::string> uav_namespaces_{"/fmu"};
   std::string frame_id_{"map"};
   double publish_rate_hz_{10.0};
   int path_max_points_{5000};
 
-  // ---- 发布状态 ----
-  // 跳变检测用的上一帧位置（RViz 平面坐标），用于在起飞点重置/数据中断时
-  // 另起一段航迹，避免拉出横贯全图的假线。
-  double last_vehicle_x_{0.0};
-  double last_vehicle_y_{0.0};
-  bool has_last_vehicle_{false};
-
-  // ---- ROS 实体 ----
-  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pub_flown_path_;
-  rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr sub_local_pos_;
+  // ---- 状态 ----
+  std::vector<UavTrack> tracks_;
   rclcpp::TimerBase::SharedPtr timer_;
-
-  nav_msgs::msg::Path flown_path_;
 };
 
 }  // namespace drones_pkg

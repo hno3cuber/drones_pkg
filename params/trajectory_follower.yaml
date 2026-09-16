@@ -74,6 +74,12 @@ trajectory_follower:
     # (x=East, y=North, z=Up)；若想直接看 NED 视觉，改成一个绕 z 转 -90° 的 frame
     frame_id: "map"
 
+    # 要可视化的 PX4 实例命名空间列表。每架发一条独立话题：
+    #   /fmu       -> ~/fmu/flown_path
+    #   /px4_1/fmu -> ~/px4_1_fmu/flown_path
+    # 多机 launch 会覆盖为四条。
+    uav_namespaces: ["/fmu"]
+
     # 实飞航迹重发频率 [Hz]
     publish_rate_hz: 10.0
 
