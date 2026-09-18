@@ -20,7 +20,11 @@ add_executable(trajectory_visualizer src/trajectory_visualizer.cpp)
 target_include_directories(trajectory_visualizer PRIVATE include)
 ament_target_dependencies(trajectory_visualizer rclcpp px4_msgs nav_msgs visualization_msgs)
 
-install(TARGETS trajectory_follower trajectory_visualizer
+add_executable(obstacle_visualizer src/obstacle_visualizer.cpp)
+target_include_directories(obstacle_visualizer PRIVATE include)
+ament_target_dependencies(obstacle_visualizer rclcpp visualization_msgs)
+
+install(TARGETS trajectory_follower trajectory_visualizer obstacle_visualizer
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch params

@@ -80,8 +80,43 @@ trajectory_follower:
     # 多机 launch 会覆盖为四条。
     uav_namespaces: ["/fmu"]
 
-    # 实飞航迹重发频率 [Hz]
-    publish_rate_hz: 10.0
+    # 实飞航迹重发频率 [Hz]。只在航迹有新增点时才会发布整条 Path；
+    # 悬停不动时不发。频率越低，大点数时的峰值带宽越小。
+    publish_rate_hz: 2.0
 
-    # 实飞航迹最多保留的点数，防止长时间飞行后无限增长
-    path_max_points: 5000
+    # 实飞航迹最多保留的点数，防止长时间飞行后无限增长。
+    # 参考：位置话题约 30~50Hz，500000 点约可保留 2.5~4.5 小时实飞航迹，
+    # 足够覆盖单次飞行全程。发布已改为“有新点才重发整条”，
+    # 因此点数不再线性放大流量。
+    path_max_points: 500000
+
+
+obstacle_visualizer:
+  ros__parameters:
+    # ------------------------------------------------------------------
+    # 静态障碍物可视化节点
+    # 不参与控制，只往 RViz 发 MarkerArray；位置按 ENU 解释，圆柱底面贴地。
+    # ------------------------------------------------------------------
+
+    # RViz 可视坐标系，与 trajectory_visualizer 保持一致
+    frame_id: "map"
+
+    # 障碍物圆心位置，扁平数组 [x0, y0, x1, y1, ...]（ENU 平面）
+    # 默认三根圆柱：(4,4) (7,7) (15,4)
+    obstacles: [4.0, 4.0, 7.0, 7.0, 15.0, 4.0]
+
+    # 圆柱半径 [m]
+    obstacle_radius: 0.75
+
+    # 圆柱高度 [m]：底面贴地，即占据 z ∈ [0, obstacle_height]
+    obstacle_height: 5.0
+
+    # MarkerArray 重发频率 [Hz]；publisher 为 transient_local，
+    # 这里只是兜底，保证 RViz 中途重载配置后仍能看到障碍物。
+    publish_rate_hz: 1.0
+
+    # 颜色与透明度
+    color_r: 0.85
+    color_g: 0.20
+    color_b: 0.20
+    alpha: 0.65
