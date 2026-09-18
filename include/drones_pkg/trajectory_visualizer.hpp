@@ -50,6 +50,9 @@ private:
     double last_x{0.0};
     double last_y{0.0};
     bool has_last{false};
+    // 有新点写入后置位，由定时器按 publish_rate_hz 统一发布，避免
+    // 高频订阅下每个点都重发整条 Path。
+    bool dirty{false};
   };
 
   void declareParameters();
@@ -68,13 +71,14 @@ private:
   std::pair<double, double> toRvizFrame(double ned_x, double ned_y) const;
 
   // ---- 定时器回调 ----
+  // 按 publish_rate_hz 检查，有新增点的航迹才重发整条 Path。
   void onTimer();
 
   // ---- 参数 ----
   std::vector<std::string> uav_namespaces_{"/fmu"};
   std::string frame_id_{"map"};
-  double publish_rate_hz_{10.0};
-  int path_max_points_{5000};
+  double publish_rate_hz_{2.0};
+  int path_max_points_{500000};
 
   // ---- 状态 ----
   std::vector<UavTrack> tracks_;

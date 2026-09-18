@@ -55,7 +55,8 @@ TrajectoryVisualizer::TrajectoryVisualizer(const rclcpp::NodeOptions & options)
     UavTrack track;
     track.ns = ns;
     track.pub = create_publisher<nav_msgs::msg::Path>(
-      "~/" + sanitizeName(ns) + "/flown_path", 1);
+      "~/" + sanitizeName(ns) + "/flown_path",
+      rclcpp::QoS(1).transient_local());
     tracks_.push_back(std::move(track));
   }
 
@@ -68,8 +69,10 @@ TrajectoryVisualizer::TrajectoryVisualizer(const rclcpp::NodeOptions & options)
       });
   }
 
-  // 以固定频率重发当前航迹，保证 RViz 订阅后即使无人机悬停不动也能立即
-  // 看到完整航迹（Path 内容由订阅回调增量维护）。
+  // 有新增点时才重发整条航迹：Path 是完整快照，无法只发增量，因此用
+  // “收点标脏 → 定时器按频率发布”的方式，避免高频订阅下每个点都发一次。
+  // 悬停不动时不再空转重发；publisher 为 transient_local，晚启动的 RViz
+  // 也能拿到最后一条完整航迹。
   const double period = 1.0 / std::clamp(publish_rate_hz_, 1.0, 50.0);
   timer_ = create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -93,8 +96,8 @@ void TrajectoryVisualizer::declareParameters()
 {
   // frame_id 默认值与 yaml 保持一致，避免带/不带参数文件时行为不同
   frame_id_ = declare_parameter<std::string>("frame_id", "map");
-  publish_rate_hz_ = declare_parameter<double>("publish_rate_hz", 10.0);
-  path_max_points_ = declare_parameter<int>("path_max_points", 5000);
+  publish_rate_hz_ = declare_parameter<double>("publish_rate_hz", 2.0);
+  path_max_points_ = declare_parameter<int>("path_max_points", 500000);
 
   // 默认只画单机 /fmu；多机时由 launch 传入完整命名空间列表
   uav_namespaces_ = declare_parameter<std::vector<std::string>>(
@@ -181,15 +184,21 @@ void TrajectoryVisualizer::appendPoint(
       track.path.poses.begin(), track.path.poses.begin() +
       static_cast<long>(track.path.poses.size() - cap));
   }
+
+  // 只标脏，真正的发布统一交给定时器，避免 30~50Hz 的订阅频率
+  // 变成整条 Path 的重发频率。
+  track.dirty = true;
 }
 
 // ---------------------------------------------------------------------------
-// 定时器：周期性重发实飞航迹
+// 定时器：只重发有新点的航迹
 // ---------------------------------------------------------------------------
 void TrajectoryVisualizer::onTimer()
 {
   for (auto & track : tracks_) {
+    if (!track.dirty) {continue;}
     track.pub->publish(track.path);
+    track.dirty = false;
   }
 }
 
