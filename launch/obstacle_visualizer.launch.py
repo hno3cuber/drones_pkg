@@ -18,11 +18,15 @@ def generate_launch_description():
     """
     pkg_share = get_package_share_directory('drones_pkg')
     default_params = os.path.join(pkg_share, 'params', 'trajectory_follower.yaml')
+    default_path = os.path.join(pkg_share, 'src', 'ref.csv')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'params_file', default_value=default_params,
             description='参数文件路径'),
+        DeclareLaunchArgument(
+            'path_file', default_value=default_path,
+            description='参考轨迹 csv 路径（两行 x/y）'),
 
         Node(
             package='drones_pkg',
@@ -30,6 +34,9 @@ def generate_launch_description():
             name='obstacle_visualizer',
             output='screen',
             # 唯一来源就是 yaml，launch 不再塞任何默认值去覆盖它。
-            parameters=[LaunchConfiguration('params_file')],
+            parameters=[
+                LaunchConfiguration('params_file'),
+                {'path_file': LaunchConfiguration('path_file')},
+            ],
         ),
     ])
