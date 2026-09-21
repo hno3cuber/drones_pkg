@@ -2,15 +2,11 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
+import sys
 
-
-# 四架无人机的身份：命名空间、系统 ID、参考轨迹
-UAVS = [
-    ('uav0', '/fmu', 1, 'uav0.csv'),
-    ('uav1', '/px4_1/fmu', 2, 'uav1.csv'),
-    ('uav2', '/px4_2/fmu', 3, 'uav2.csv'),
-    ('uav3', '/px4_3/fmu', 4, 'uav3.csv'),
-]
+# 同目录的公共配置：四架无人机的身份与参考轨迹的唯一事实源
+sys.path.insert(0, os.path.dirname(__file__))
+from uav_config import UAVS, UAV_ORDER  # noqa: E402
 
 
 def generate_launch_description():
@@ -45,12 +41,12 @@ def generate_launch_description():
         )
 
     nodes = [
-        follower('trajectory_follower_' + name, ns, sys_id, csv)
-        for name, ns, sys_id, csv in UAVS
+        follower(name, *UAVS[name])
+        for name in UAV_ORDER
     ]
 
     # 四条实飞航迹：一个 visualizer 订阅全部命名空间
-    namespaces = [ns for _, ns, _, _ in UAVS]
+    namespaces = [UAVS[name][0] for name in UAV_ORDER]
     nodes.append(Node(
         package='drones_pkg',
         executable='trajectory_visualizer',

@@ -1,4 +1,8 @@
-trajectory_follower:
+# 参数段用 /** 通配匹配本文件加载到的所有节点。
+# 原因：各 launch 创建的节点名并不统一（单机为 trajectory_follower_uav0，
+# 多机为 uav0/uav1/...），若写死成某一个节点名，其余节点就匹配不到，
+# 整份参数不会生效。用 /** 可让全部 follower/visualizer 节点都读到。
+/**:
   ros__parameters:
     # ------------------------------------------------------------------
     # PX4 实例
@@ -19,7 +23,8 @@ trajectory_follower:
     #   1) 两行 x/y（第一行 x，第二行 y），无时间列 —— 用 dt 参数作为步长
     #   2) 每行一列，第 0 列为 t，第 1 列为 x，第 2 列为 y
     # 轨迹文件路径。必填：为空则节点启动失败。
-    # 通常由 launch 传入（单机 launch 默认 uav0.csv，多机 launch 分别传 uav*.csv）。
+    # 通常由 launch 传入（单机 launch 默认 ref.csv，多机 launch 分别传各自的 csv；
+    # 四架的身份与轨迹见 launch/uav_config.py）。
     trajectory_file: ""
 
     # 相邻轨迹点之间的时间步长 [s]，仅用于两行 x/y 格式
@@ -60,6 +65,26 @@ trajectory_follower:
 
     # 轨迹播放循环
     loop_trajectory: false
+
+    # ------------------------------------------------------------------
+    # 避障
+    # 在轨迹加载后做一次性预处理：把落入障碍安全圆的连续轨迹段
+    # 替换成沿圆周走的弧（进出点用圆外相邻点插值求出），
+    # 运行时按处理后的轨迹正常采样，不再做几何计算。
+    # 因此弧上会重新铺点，绕行段的飞行时间会略微变长。
+    # ------------------------------------------------------------------
+
+    # 总开关。false 时完全按参考轨迹飞，不做任何修正。
+    avoidance_enable: true
+
+    # 障碍圆心位置，扁平数组 [x0, y0, x1, y1, ...]，与 trajectory_follower
+    # 的坐标约定一致：默认按 ENU 解释（frame_is_enu=true 即 North=y, East=x）。
+    # 默认三根圆柱，与 obstacle_visualizer 的 obstacles 保持同一组坐标。
+    avoidance_obstacles: [4.0, 4.0, 7.0, 7.0, 15.0, 4.0]
+
+    # 安全圆半径 [m]：以圆心为中心，轨迹进入该半径内即改为沿圆弧绕行。
+    # 1.5 = 圆柱半径 0.75 + 0.75 安全余量。
+    avoidance_radius: 1.5
 
     # 轨迹结束后动作: "hold" 保持终点 / "rtl" 返回起飞点
     end_action: "hold"
@@ -143,3 +168,40 @@ obstacle_visualizer:
     path_color_g: 0.65
     path_color_b: 1.00
     path_alpha: 1.00
+
+
+trajectory_plotter:
+  ros__parameters:
+    # ------------------------------------------------------------------
+    # 到点绘图节点
+    # 跟踪任务期间累积无人机到各障碍物中轴线的距离，收到 trajectory_follower
+    # 发出的 <node_namespace>/trajectory_finished 后弹出一张曲线图。
+    # 距离定义与 obstacle_visualizer 的几何一致：障碍物几何优先从
+    # obstacle_visualizer 的 MarkerArray 读取，未到达时用 fallback 兜底。
+    # ------------------------------------------------------------------
+
+    # PX4 话题命名空间，需与同一架无人机的 trajectory_follower 一致
+    node_namespace: "/fmu"
+
+    # 障碍物 MarkerArray 话题
+    obstacles_topic: "/obstacle_visualizer/markers"
+
+    # 红色虚线的 y 值 [m]。距离算到中轴线，因此 0.75（=柱子半径）
+    # 表示「无人机已经进到柱体内部」这条界线。
+    safe_distance: 0.75
+
+    # 距离采样频率 [Hz]，需足够密才不至于在曲线上漏掉快速穿越
+    compute_rate_hz: 20.0
+
+    # 距离计算是否要求 PX4 的 z 有效
+    drone_z_valid: true
+
+    # matplotlib 后端。弹窗交互用 "TkAgg"（需图形环境）；
+    # 无头环境改用 "Agg" 并配 output_png 看图片。
+    backend: "TkAgg"
+
+    # 非空时把图同时保存到该路径（如 /home/hno3/flight.png）
+    output_png: ""
+
+    # MarkerArray 未到达时的兜底障碍物圆心，扁平数组 [x0, y0, x1, y1, ...]
+    fallback_obstacles: [4.0, 4.0, 7.0, 7.0, 15.0, 4.0]

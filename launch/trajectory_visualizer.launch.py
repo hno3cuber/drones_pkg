@@ -1,20 +1,14 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
+import sys
 
-
-# 四架无人机的身份：node_namespace + target_system + 参考轨迹
-# 与 trajectory_follower.launch.py / trajectory_follower_multi.launch.py 保持一致
-UAVS = {
-    'uav0': ('/fmu', 1, 'uav0.csv'),
-    'uav1': ('/px4_1/fmu', 2, 'uav1.csv'),
-    'uav2': ('/px4_2/fmu', 3, 'uav2.csv'),
-    'uav3': ('/px4_3/fmu', 4, 'uav3.csv'),
-}
+# 同目录的公共配置：四架无人机的身份与参考轨迹的唯一事实源
+sys.path.insert(0, os.path.dirname(__file__))
+from uav_config import UAVS  # noqa: E402
 
 
 def _launch_setup(context, *args, **kwargs):
@@ -38,22 +32,26 @@ def _launch_setup(context, *args, **kwargs):
     trajectory = LaunchConfiguration('trajectory_file').perform(context) or \
         os.path.join(pkg_share, 'src', default_csv)
 
-    nodes = [
-        Node(
-            package='drones_pkg',
-            executable='trajectory_follower',
-            name='trajectory_follower_' + uav,
-            output='screen',
-            parameters=[
-                params_file,
-                {
-                    'node_namespace': ns,
-                    'target_system': sys_id,
-                    'trajectory_file': trajectory,
-                },
-            ],
-            condition=IfCondition(PythonExpression(['not ', visualizer_only])),
-        ),
+    nodes = []
+    if not (visualizer_only.strip().lower() in ('true', '1', 'yes')):
+        nodes.append(
+            Node(
+                package='drones_pkg',
+                executable='trajectory_follower',
+                name='trajectory_follower_' + uav,
+                output='screen',
+                parameters=[
+                    params_file,
+                    {
+                        'node_namespace': ns,
+                        'target_system': sys_id,
+                        'trajectory_file': trajectory,
+                    },
+                ],
+            )
+        )
+
+    nodes.append(
         Node(
             package='drones_pkg',
             executable='trajectory_visualizer',
@@ -61,8 +59,8 @@ def _launch_setup(context, *args, **kwargs):
             output='screen',
             # 只可视化所选这一架，话题即为 ~/<ns 转写>/flown_path
             parameters=[params_file, {'uav_namespaces': [ns]}],
-        ),
-    ]
+        )
+    )
     return nodes
 
 
@@ -72,7 +70,7 @@ def generate_launch_description():
     控制节点与可视化节点共用同一份 params 文件，且都只针对 uav 指定的那一架。
 
     用法:
-        # 默认 uav0（/fmu, 系统 1, uav0.csv）
+        # 默认 uav0（/fmu, 系统 1, ref.csv）
         ros2 launch drones_pkg trajectory_visualizer.launch.py
 
         # 只看 uav2 的实飞航迹，不起控制节点

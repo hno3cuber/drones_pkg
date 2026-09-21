@@ -1,6 +1,6 @@
 // trajectory_follower.hpp
 //
-// 让 PX4 无人机按 uav0.csv 中的参考轨迹飞行（OFFBOARD 模式）。
+// 让 PX4 无人机按 csv 中的参考轨迹飞行（OFFBOARD 模式）。
 //
 // 状态机:
 //   WAIT_SYNC      等待 PX4 时间同步 + EKF 位置有效
@@ -8,7 +8,7 @@
 //   ARM            发送解锁指令
 //   OFFBOARD       切换 OFFBOARD 模式
 //   APPROACH       从当前位置飞向轨迹起点（含爬升到目标高度）
-//   TRACK          逐点播放参考轨迹
+//   TRACK          逐点播放参考轨迹（可选：避开障碍安全圈）
 //   HOLD           轨迹播放完毕，保持在终点
 //   RTL            返航
 //
@@ -26,6 +26,7 @@
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <array>
 #include <chrono>
@@ -63,6 +64,11 @@ private:
   /// 在轨迹上按时间查询位置（线性插值），返回 NED 位置
   std::array<float, 3> sampleTrajectory(double t_sec) const;
 
+  // ---- 避障 ----
+  /// 把整条轨迹中落入障碍安全圆内的连续段替换成沿圆周的弧（NED 平面）。
+  /// 在轨迹加载后一次性调用，运行时不再做几何计算。返回被修正的段数。
+  size_t applyObstacleAvoidance();
+
   // ---- 状态机 ----
   void stepStateMachine();
   void setState(State s);
@@ -76,6 +82,8 @@ private:
   void engageOffboardMode();
   void sendRtl();
   void sendHold();
+  /// 轨迹播放完毕、进入终点保持时发布一次 true（latched，只发一次）
+  void publishFinished();
 
   // ---- 回调 ----
   void onLocalPosition(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
@@ -102,6 +110,15 @@ private:
   bool loop_trajectory_{false};
   std::string end_action_{"hold"};
 
+  // ---- 避障 ----
+  // 安全圆按 ENU 解释（与 obstacle_visualizer 的参数保持一致），
+  // 内部换算到 NED 后再与轨迹点比较。
+  bool avoidance_enable_{true};
+  // 障碍圆心扁平数组 [x0, y0, x1, y1, ...]（ENU）
+  std::vector<double> avoidance_obstacles_;
+  // 安全圆半径 [m]：以圆心为中心，轨迹点靠近到该半径内即被推出
+  double avoidance_radius_{1.5};
+
   // ---- 轨迹数据 (NED, 已转换) ----
   std::vector<float> traj_x_;   // North
   std::vector<float> traj_y_;   // East
@@ -116,6 +133,7 @@ private:
   bool arm_sent_{false};
   bool rtl_sent_{false};
   bool hold_sent_{false};
+  bool finished_published_{false};
 
   // ---- 最新遥测 ----
   px4_msgs::msg::VehicleLocalPosition::SharedPtr local_pos_;
@@ -127,6 +145,9 @@ private:
   rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr pub_offboard_mode_;
   rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr pub_setpoint_;
   rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr pub_command_;
+  // 跟踪完成信号：进入终点保持后发一次 true，供外部绘图/记录节点订阅。
+  // 用 transient_local（latched），晚启动的订阅者也能拿到这一次事件。
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_finished_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

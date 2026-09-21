@@ -1,6 +1,6 @@
 // trajectory_follower.cpp
 //
-// 让 PX4 无人机按 uav0.csv 中的参考轨迹飞行（OFFBOARD 模式）。
+// 让 PX4 无人机按 csv 中的参考轨迹飞行（OFFBOARD 模式）。
 //
 // 状态机:
 //   WAIT_SYNC      等待 EKF 位置有效
@@ -77,6 +77,13 @@ TrajectoryFollower::TrajectoryFollower(const rclcpp::NodeOptions & options)
   pub_command_ = create_publisher<px4_msgs::msg::VehicleCommand>(
     ns + "/in/vehicle_command", qos);
 
+  // 完成信号用 transient_local：即使绘图节点在飞行末尾才启动，
+  // 订阅后也会立刻收到那一帧 latched 的 true。
+  rclcpp::QoS finished_qos(rclcpp::KeepLast(1));
+  finished_qos.transient_local();
+  pub_finished_ = create_publisher<std_msgs::msg::Bool>(
+    node_namespace_ + "/trajectory_finished", finished_qos);
+
   if (!loadTrajectory()) {
     throw std::runtime_error("Failed to load reference trajectory");
   }
@@ -116,6 +123,11 @@ void TrajectoryFollower::declareParameters()
   approach_tolerance_ = declare_parameter<double>("approach_tolerance", 0.5);
   loop_trajectory_ = declare_parameter<bool>("loop_trajectory", false);
   end_action_ = declare_parameter<std::string>("end_action", "hold");
+
+  avoidance_enable_ = declare_parameter<bool>("avoidance_enable", true);
+  avoidance_obstacles_ = declare_parameter<std::vector<double>>(
+    "avoidance_obstacles", std::vector<double>{});
+  avoidance_radius_ = declare_parameter<double>("avoidance_radius", 1.5);
 }
 
 void TrajectoryFollower::loadParameters()
@@ -130,6 +142,21 @@ void TrajectoryFollower::loadParameters()
     setpoint_rate_hz_ = 20.0;
   }
   setpoint_rate_hz_ = std::min(setpoint_rate_hz_, 200.0);
+
+  if (avoidance_radius_ <= 0.0) {
+    RCLCPP_WARN(
+      get_logger(), "avoidance_radius=%.3f invalid, avoidance disabled", avoidance_radius_);
+    avoidance_enable_ = false;
+  }
+  if (avoidance_obstacles_.size() % 2 != 0) {
+    RCLCPP_WARN(
+      get_logger(), "avoidance_obstacles has odd size %zu, last value ignored",
+      avoidance_obstacles_.size());
+    avoidance_obstacles_.pop_back();
+  }
+  RCLCPP_INFO(
+    get_logger(), "avoidance: %s, %zu obstacle(s), safety radius %.2fm",
+    avoidance_enable_ ? "on" : "off", avoidance_obstacles_.size() / 2, avoidance_radius_);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +235,154 @@ bool TrajectoryFollower::loadTrajectory()
   RCLCPP_INFO(
     get_logger(), "loaded %zu points from %s (frame=%s, dt=%.3fs, duration=%.1fs)",
     traj_x_.size(), path.c_str(), frame_is_enu_ ? "ENU" : "NED", dt_, traj_duration_);
+
+  // 避障：把落入障碍安全圆的轨迹段替换成沿圆周的弧（一次性预处理）
+  const size_t avoided = applyObstacleAvoidance();
+  if (avoided > 0) {
+    traj_duration_ = static_cast<double>(traj_x_.size() - 1) * dt_;
+    RCLCPP_INFO(
+      get_logger(), "avoidance applied: %zu segment(s), now %zu points, %.1fs",
+      avoided, traj_x_.size(), traj_duration_);
+  }
   return true;
+}
+
+size_t TrajectoryFollower::applyObstacleAvoidance()
+{
+  if (!avoidance_enable_ || avoidance_obstacles_.size() < 2 || avoidance_radius_ <= 0.0) {
+    return 0;
+  }
+
+  // 障碍圆心参数按 ENU 解释（与 obstacle_visualizer 一致），
+  // 轨迹点已在 NED：North = y_enu, East = x_enu。
+  const double R = avoidance_radius_;
+
+  size_t total_segments = 0;
+  const size_t num_obs = avoidance_obstacles_.size() / 2;
+
+  // 障碍之间可能相距较近，逐个障碍依次重算；
+  // 每次重算都基于当前（可能已被前一个障碍改过的）点序列。
+  for (size_t oi = 0; oi < num_obs; ++oi) {
+    const double ox = avoidance_obstacles_[oi * 2 + 1];  // North = y_enu
+    const double oy = avoidance_obstacles_[oi * 2];      // East  = x_enu
+
+    // 标记哪些点在安全圆内
+    const size_t n = traj_x_.size();
+    std::vector<bool> inside(n, false);
+    for (size_t i = 0; i < n; ++i) {
+      const double dx = traj_x_[i] - ox;
+      const double dy = traj_y_[i] - oy;
+      inside[i] = (dx * dx + dy * dy) < R * R;
+    }
+
+    // 从后往前处理连续段，避免索引失效
+    size_t i = n;
+    while (i > 0) {
+      --i;
+      if (!inside[i]) {
+        continue;
+      }
+      // 找到连续段的起点（含）与终点（不含）
+      size_t seg_end = i + 1;
+      size_t seg_begin = i;
+      while (seg_begin > 0 && inside[seg_begin - 1]) {
+        --seg_begin;
+      }
+
+      const size_t i_before = (seg_begin == 0) ? 0 : seg_begin - 1;
+      const size_t i_after = (seg_end >= n) ? n - 1 : seg_end;
+
+      // 用圆外相邻点与圆内点线性插值，求与安全圆的交点
+      auto boundaryPoint = [&](size_t i_out, size_t i_in) -> std::pair<double, double> {
+        const double ax = traj_x_[i_out], ay = traj_y_[i_out];
+        const double bx = traj_x_[i_in], by = traj_y_[i_in];
+        const double vx = bx - ax, vy = by - ay;
+        // 解 |A + s*v - C| = R，取 [0,1] 内最接近圆的那一个根
+        const double fx = ax - ox, fy = ay - oy;
+        const double a = vx * vx + vy * vy;
+        const double b = 2.0 * (fx * vx + fy * vy);
+        const double c = fx * fx + fy * fy - R * R;
+        double s = 0.0;
+        if (a > 1e-12) {
+          const double disc = b * b - 4.0 * a * c;
+          if (disc >= 0.0) {
+            const double sq = std::sqrt(disc);
+            const double s1 = (-b - sq) / (2.0 * a);
+            const double s2 = (-b + sq) / (2.0 * a);
+            // 选落在 [0,1] 内、且更靠近圆内的那个根
+            if (s1 >= 0.0 && s1 <= 1.0) {s = s1;} else if (s2 >= 0.0 && s2 <= 1.0) {s = s2;}
+          }
+        }
+        return {ax + s * vx, ay + s * vy};
+      };
+
+      const auto entry = boundaryPoint(i_before, seg_begin);
+      const auto exit = boundaryPoint(i_after, seg_end - 1);
+
+      // 进出点在圆周上的方位角（标准 atan2）
+      double a_entry = std::atan2(entry.second - oy, entry.first - ox);
+      double a_exit = std::atan2(exit.second - oy, exit.first - ox);
+
+      // 选短边方向：跨度归一化到 (-pi, pi]，正为逆时针、负为顺时针
+      double delta = a_exit - a_entry;
+      while (delta > M_PI) {delta -= 2.0 * M_PI;}
+      while (delta <= -M_PI) {delta += 2.0 * M_PI;}
+
+      // 弧长与铺点数：等角度铺，点数按弧长 / 原轨迹步长决定，
+      // 使弧上的单点位移与原轨迹同量级。
+      const double arc_len = std::abs(delta) * R;
+      // 参考步长取圆外相邻两点的间距（轨迹进入圆前的真实步长），
+      // 不能用跨圆内的直线距离，那与局部步长无关。
+      const size_t i_ref_a = (seg_begin == 0) ? 0 : seg_begin - 1;
+      const size_t i_ref_b = (i_ref_a == 0 && seg_begin > 0) ? seg_begin : (i_ref_a + 1);
+      const double dxb = traj_x_[i_ref_b] - traj_x_[i_ref_a];
+      const double dyb = traj_y_[i_ref_b] - traj_y_[i_ref_a];
+      double ref_step = std::sqrt(dxb * dxb + dyb * dyb);
+      if (ref_step < 1e-6) {
+        // 退化情况：用整条轨迹的平均步长兜底
+        ref_step = traj_duration_ > 0.0 && traj_x_.size() > 1 ?
+          (std::hypot(traj_x_.back() - traj_x_.front(), traj_y_.back() - traj_y_.front()) /
+          static_cast<double>(traj_x_.size() - 1)) : 0.05;
+      }
+      ref_step = std::max(ref_step, 1e-4);
+      size_t num_arc_pts = static_cast<size_t>(std::ceil(arc_len / ref_step));
+      num_arc_pts = std::max<size_t>(num_arc_pts, 4);   // 至少几个点，保证弧看得见
+      num_arc_pts = std::min<size_t>(num_arc_pts, 20000);
+
+      std::vector<std::pair<double, double>> arc_pts;
+      arc_pts.reserve(num_arc_pts + 1);
+      arc_pts.emplace_back(entry.first, entry.second);
+      for (size_t k = 1; k < num_arc_pts; ++k) {
+        const double t = static_cast<double>(k) / static_cast<double>(num_arc_pts);
+        const double ang = a_entry + delta * t;
+        arc_pts.emplace_back(ox + R * std::cos(ang), oy + R * std::sin(ang));
+      }
+      arc_pts.emplace_back(exit.first, exit.second);
+
+      // 用弧上的点替换 [seg_begin, seg_end) 这一段
+      traj_x_.erase(
+        traj_x_.begin() + static_cast<long>(seg_begin),
+        traj_x_.begin() + static_cast<long>(seg_end));
+      traj_y_.erase(
+        traj_y_.begin() + static_cast<long>(seg_begin),
+        traj_y_.begin() + static_cast<long>(seg_end));
+
+      std::vector<float> ax_ins, ay_ins;
+      ax_ins.reserve(arc_pts.size());
+      ay_ins.reserve(arc_pts.size());
+      for (const auto & q : arc_pts) {
+        ax_ins.push_back(static_cast<float>(q.first));
+        ay_ins.push_back(static_cast<float>(q.second));
+      }
+      traj_x_.insert(traj_x_.begin() + static_cast<long>(seg_begin), ax_ins.begin(), ax_ins.end());
+      traj_y_.insert(traj_y_.begin() + static_cast<long>(seg_begin), ay_ins.begin(), ay_ins.end());
+
+      ++total_segments;
+      i = seg_begin;  // 继续向前扫描
+    }
+  }
+
+  return total_segments;
 }
 
 std::array<float, 3> TrajectoryFollower::sampleTrajectory(double t_sec) const
@@ -297,6 +471,19 @@ void TrajectoryFollower::sendRtl()
 {
   publishVehicleCommand(kCmdNavRtl, 0.0f, 0.0f);
   RCLCPP_INFO(get_logger(), "-> RTL");
+}
+
+void TrajectoryFollower::publishFinished()
+{
+  if (finished_published_) {return;}
+  finished_published_ = true;
+
+  std_msgs::msg::Bool msg;
+  msg.data = true;
+  pub_finished_->publish(msg);
+  RCLCPP_INFO(
+    get_logger(), "-> trajectory finished signal published on '%s'",
+    (node_namespace_ + "/trajectory_finished").c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +669,7 @@ void TrajectoryFollower::stepStateMachine()
       if (!hold_sent_) {
         RCLCPP_INFO(get_logger(), "holding at trajectory end point");
         hold_sent_ = true;
+        publishFinished();
       }
       const auto p = sampleTrajectory(traj_duration_);
       publishTrajectorySetpoint(p[0], p[1], p[2], NAN);

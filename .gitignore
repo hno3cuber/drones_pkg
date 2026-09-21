@@ -9,6 +9,10 @@ _colcon/
 .idea/
 *.swp
 .DS_Store
+__pycache__/
 
 # 工作过程中的临时备份（不参与版本控制）
 .backup/
+
+# Windows 从压缩包/网络下载时产生的标记文件
+*:Zone.Identifier
