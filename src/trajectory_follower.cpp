@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -128,6 +129,10 @@ void TrajectoryFollower::declareParameters()
   avoidance_obstacles_ = declare_parameter<std::vector<double>>(
     "avoidance_obstacles", std::vector<double>{});
   avoidance_radius_ = declare_parameter<double>("avoidance_radius", 1.5);
+  export_avoided_csv_ = declare_parameter<std::string>("export_avoided_csv", "");
+  arc_side_ = declare_parameter<std::string>("avoidance_arc_side", "short");
+  arc_side_by_obstacle_ = declare_parameter<std::vector<std::string>>(
+    "avoidance_arc_side_by_obstacle", std::vector<std::string>{});
 }
 
 void TrajectoryFollower::loadParameters()
@@ -244,6 +249,41 @@ bool TrajectoryFollower::loadTrajectory()
       get_logger(), "avoidance applied: %zu segment(s), now %zu points, %.1fs",
       avoided, traj_x_.size(), traj_duration_);
   }
+
+  // 可选：把"平移 + 绕行"后的结果导出成新 csv（离线固化用）
+  if (!export_avoided_csv_.empty() && !exportAvoidedCsv(export_avoided_csv_)) {
+    RCLCPP_WARN(
+      get_logger(), "failed to export avoided trajectory to %s",
+      export_avoided_csv_.c_str());
+  }
+  return true;
+}
+
+bool TrajectoryFollower::exportAvoidedCsv(const std::string & path) const
+{
+  std::ofstream ofs(path);
+  if (!ofs.is_open()) {
+    return false;
+  }
+
+  // 轨迹点已含平移（在加载时加过 origin_offset），此处只把 NED 转回 ENU：
+  // North = y_enu, East = x_enu -> csv 第一行为 x_enu，第二行为 y_enu。
+  // 高精度输出，避免边缘点因截断漂回安全圆内。
+  ofs << std::setprecision(12);
+  for (size_t i = 0; i < traj_x_.size(); ++i) {
+    if (i > 0) {ofs << ',';}
+    ofs << (frame_is_enu_ ? traj_y_[i] : traj_x_[i]);
+  }
+  ofs << '\n';
+  for (size_t i = 0; i < traj_y_.size(); ++i) {
+    if (i > 0) {ofs << ',';}
+    ofs << (frame_is_enu_ ? traj_x_[i] : traj_y_[i]);
+  }
+  ofs << '\n';
+
+  RCLCPP_INFO(
+    get_logger(), "exported %zu points to %s (frame=%s)",
+    traj_x_.size(), path.c_str(), frame_is_enu_ ? "ENU" : "NED");
   return true;
 }
 
@@ -256,6 +296,13 @@ size_t TrajectoryFollower::applyObstacleAvoidance()
   // 障碍圆心参数按 ENU 解释（与 obstacle_visualizer 一致），
   // 轨迹点已在 NED：North = y_enu, East = x_enu。
   const double R = avoidance_radius_;
+  // 判据容差：轨迹点是 float，绕行弧上的点到圆心的距离理论上正好是 R，
+  // 但经过 float 存储、csv 往返、坐标转换后会有 ~1e-7 量级的误差。
+  // 若用严格的 d < R，这些贴边点会被判成"仍在圆内"，导致对已绕行的
+  // 轨迹反复二次绕行（csv 导出后再加载时尤其明显）。把判据收紧到
+  // d < R - kEps，使贴边点不再触发，避障对自身输出幂等。
+  constexpr double kEps = 1e-3;
+  const double R_in = R - kEps;
 
   size_t total_segments = 0;
   const size_t num_obs = avoidance_obstacles_.size() / 2;
@@ -265,6 +312,9 @@ size_t TrajectoryFollower::applyObstacleAvoidance()
   for (size_t oi = 0; oi < num_obs; ++oi) {
     const double ox = avoidance_obstacles_[oi * 2 + 1];  // North = y_enu
     const double oy = avoidance_obstacles_[oi * 2];      // East  = x_enu
+    // 该障碍的弧向：按障碍下标覆盖，缺省用全局值
+    const std::string side = (oi < arc_side_by_obstacle_.size())
+      ? arc_side_by_obstacle_[oi] : arc_side_;
 
     // 标记哪些点在安全圆内
     const size_t n = traj_x_.size();
@@ -272,7 +322,7 @@ size_t TrajectoryFollower::applyObstacleAvoidance()
     for (size_t i = 0; i < n; ++i) {
       const double dx = traj_x_[i] - ox;
       const double dy = traj_y_[i] - oy;
-      inside[i] = (dx * dx + dy * dy) < R * R;
+      inside[i] = (dx * dx + dy * dy) < R_in * R_in;
     }
 
     // 从后往前处理连续段，避免索引失效
@@ -323,10 +373,16 @@ size_t TrajectoryFollower::applyObstacleAvoidance()
       double a_entry = std::atan2(entry.second - oy, entry.first - ox);
       double a_exit = std::atan2(exit.second - oy, exit.first - ox);
 
-      // 选短边方向：跨度归一化到 (-pi, pi]，正为逆时针、负为顺时针
+      // 选弧方向：
+      //   short（默认）：跨度归一化到 (-pi, pi]，走角度差较小的一侧
+      //   long ：走另一侧（角度差较大）
       double delta = a_exit - a_entry;
       while (delta > M_PI) {delta -= 2.0 * M_PI;}
       while (delta <= -M_PI) {delta += 2.0 * M_PI;}
+
+      if (side == "long") {
+        delta = (delta > 0.0) ? delta - 2.0 * M_PI : delta + 2.0 * M_PI;
+      }
 
       // 弧长与铺点数：等角度铺，点数按弧长 / 原轨迹步长决定，
       // 使弧上的单点位移与原轨迹同量级。

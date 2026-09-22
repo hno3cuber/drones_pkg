@@ -41,7 +41,28 @@ y0,y1,y2,...,yN     <- 第二行：y 坐标
 ros2 launch drones_pkg trajectory_follower.launch.py
 ```
 
-多机（四架，一次启动）：
+### 单独运行 uav1
+
+uav1 跟 `src/ref_uav1.csv`，走 PX4 实例 1（命名空间 `/px4_1/fmu`，系统 ID 2）。
+身份与轨迹由 `launch/uav_config.py` 自动带出，一条命令即可：
+
+```bash
+cd ~/ws_ros2
+colcon build --packages-select drones_pkg   # 新增的 ref_uav1.csv 要装进 install
+source install/setup.bash
+ros2 launch drones_pkg trajectory_follower.launch.py uav:=uav1
+```
+
+前提是 PX4 实例 1 已起来（`px4_1`，`MAV_SYS_ID=2`，命名空间 `/px4_1/fmu`），
+否则本节点找不到话题、无法 arm/offboard。
+
+只想跑控制、不起可视化：
+
+```bash
+ros2 launch drones_pkg trajectory_follower.launch.py uav:=uav1 visualizer:=false
+```
+
+多机（四架一次起）：
 
 ```bash
 ros2 launch drones_pkg trajectory_follower_multi.launch.py
@@ -49,15 +70,18 @@ ros2 launch drones_pkg trajectory_follower_multi.launch.py
 
 多机模式下四架的身份与轨迹对应关系（事实源为 `launch/uav_config.py`）：
 
-| 节点名 | node_namespace | target_system | 轨迹 | NED x 偏移 |
-| --- | --- | --- | --- | --- |
-| trajectory_follower_uav0 | `/fmu` | 1 | ref.csv | 0 |
-| trajectory_follower_uav1 | `/px4_1/fmu` | 2 | ref.csv | +2.0 |
-| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv | 0 |
-| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv | 0 |
+| 节点名 | node_namespace | target_system | 轨迹 |
+| --- | --- | --- | --- |
+| trajectory_follower_uav0 | `/fmu` | 1 | ref.csv |
+| trajectory_follower_uav1 | `/px4_1/fmu` | 2 | ref_uav1.csv |
+| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv |
+| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv |
 
-uav1 与 uav0 共用 `ref.csv`，靠 `origin_offset_ned_x = 2.0` 沿 NED 的
-x 轴（North）整体平移 2m，避免同轨迹相撞。
+uav1 跟的 `ref_uav1.csv` 是两步串出来的：`ref.csv` 先在原位置避障，
+结果沿 NED x（North）平移 2m 后再避障导出（见「离线导出避障后轨迹」）。
+第一次用默认 `short`，第二次按障碍指定 `["short", "long", "short"]`。
+终点 ENU(25,8)，比 uav0 整体北移 2m。因平移已烘入文件，
+`uav_config.py` 中它的偏移为 0。
 
 ## 实飞航迹可视化
 
@@ -102,7 +126,7 @@ ros2 launch drones_pkg trajectory_visualizer.launch.py visualizer_only:=true
 | `dt` | `0.1` | 相邻点时间步长 [s]（csv 无时间列时使用） |
 | `frame_is_enu` | `true` | 输入是否为 ENU |
 | `flight_altitude` | `5.0` | 目标飞行高度 [m] |
-| `origin_offset_ned_x` | `0.0` | 轨迹沿 NED x 轴（North）的整体平移 [m]；多机共用同一 csv 时用它错开（uav1 为 2.0） |
+| `origin_offset_ned_x` | `0.0` | 轨迹沿 NED x 轴（North）的整体平移 [m]；多机共用同一 csv 时用它错开 |
 | `origin_offset_ned_y` | `0.0` | 轨迹沿 NED y 轴（East）的整体平移 [m] |
 | `approach_speed` | `2.0` | 飞向轨迹起点的速度 [m/s] |
 | `setpoint_rate_hz` | `20.0` | setpoint 发布频率 [Hz]，需 > 2Hz |
@@ -111,6 +135,9 @@ ros2 launch drones_pkg trajectory_visualizer.launch.py visualizer_only:=true
 | `avoidance_enable` | `true` | 避障总开关，`false` 时完全按参考轨迹飞 |
 | `avoidance_obstacles` | `[4,4, 7,7, 15,4]` | 障碍圆心扁平数组 `[x0,y0,x1,y1,...]`（ENU） |
 | `avoidance_radius` | `1.5` | 安全圆半径 [m]，轨迹进入该半径内即沿圆弧绕行 |
+| `avoidance_arc_side` | `short` | 绕行弧走向：`short` 角度差小的一侧 / `long` 另一侧 |
+| `avoidance_arc_side_by_obstacle` | `[]` | 按障碍下标覆盖弧向，如 `["short","long","short"]` |
+| `export_avoided_csv` | `""` | 避障处理结果导出路径；非空则把处理后的轨迹写成两行 ENU csv |
 | `end_action` | `hold` | 轨迹结束后动作：`hold` 悬停 / `rtl` 返航 |
 
 ## 避障
@@ -126,6 +153,63 @@ ros2 launch drones_pkg trajectory_visualizer.launch.py visualizer_only:=true
 
 注意这是 **2D 避让**：只在水平面绕开，高度保持 `flight_altitude` 不变。
 若障碍高度与飞行高度接近，需自行评估垂直方向的安全余量。
+
+判据带 `1e-3` 的小容差（以 `d < R - 1e-3` 判定入侵），因为轨迹点是
+`float`，绕行弧上的点经过 csv 往返后会有 ~1e-7 的误差；若用严格 `d < R`，
+这些贴边点会被判成"仍在圆内"而反复二次绕行。加容差后避障对自身输出**幂等**。
+
+### 绕行弧走向
+
+安全圆的两个交点之间有两条弧，`avoidance_arc_side` 决定走哪条：
+
+- `short`（默认）：两交点方位角差归一化到 (-π, π] 后的那一侧，即角度跨度小的弧
+- `long`：另一侧（跨度大的弧）
+
+哪个方向看起来是「从上面/外面绕」并不固定，要看进出的方位角。动手调时
+建议配 `export_avoided_csv` 导出成 csv、画图确认，而不是凭直觉预设。
+
+需要只翻某一根障碍的绕行弧时，用 `avoidance_arc_side_by_obstacle` 按障碍
+下标逐项覆盖（顺序与 `avoidance_obstacles` 一致），例如
+`["short", "long", "short"]`。它的价值在于：同一次避障里不同障碍可能
+需要不同的走向，而全局的 `avoidance_arc_side` 一改就全变。
+
+### 离线导出避障后轨迹
+
+参数 `export_avoided_csv` 非空时，节点在"加载 + 平移 + 绕障"完成后，
+把当前点序列转回 ENU 并写入该路径（两行 csv，12 位有效精度）。
+留空则不产生任何文件，节点仍为纯计算。
+
+用途：把"平移 + 绕行"离线固化成一条新轨迹，供其他无人机直接跟踪。
+它也可以串起来用：加载一个 csv、避障、导出，再把导出结果当作下一次的
+输入，逐段叠加处理。
+
+例如 `ref_uav1.csv` 就是两步串出来的：先让 `ref.csv` 在原位置避障导出中间
+文件，再让中间文件沿 NED x 平移 2m、避障后导出最终结果。
+
+```bash
+PKG=~/ws_ros2/src/drones_pkg
+SRC=$PKG/src
+PARAMS=$PKG/params/trajectory_follower.yaml
+
+# 第 1 步：ref.csv 在原位置避障 -> 中间文件（2004 -> 2035 点，3 段，默认 short）
+ros2 run drones_pkg trajectory_follower --ros-args \
+  --params-file $PARAMS \
+  -p trajectory_file:=$SRC/ref.csv \
+  -p export_avoided_csv:=$SRC/ref_avoided.csv
+
+# 第 2 步：中间文件沿 NED x 平移 2m、避障 -> ref_uav1.csv（2123 点，2 段）
+# 按障碍指定弧向：障碍2 (7,7) 用 long 从外侧包，障碍3 (15,4) 用 short 从上绕
+ros2 run drones_pkg trajectory_follower --ros-args \
+  --params-file $PARAMS \
+  -p trajectory_file:=$SRC/ref_avoided.csv \
+  -p origin_offset_ned_x:=2.0 \
+  -p avoidance_arc_side:=short \
+  -p avoidance_arc_side_by_obstacle:="[short, long, short]" \
+  -p export_avoided_csv:=$SRC/ref_uav1.csv
+```
+
+导出的结果已含平移（在加载时烘入），因此 `uav_config.py` 中 uav1 指向
+`ref_uav1.csv` 时它的偏移为 `0.0`（不能再加，否则平移两次）。
 
 以下参数仅供 `trajectory_visualizer` 使用：
 

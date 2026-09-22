@@ -69,6 +69,10 @@ private:
   /// 在轨迹加载后一次性调用，运行时不再做几何计算。返回被修正的段数。
   size_t applyObstacleAvoidance();
 
+  /// 把当前 traj_x_/traj_y_（NED）转回 ENU 并写成两行 csv。
+  /// 仅在参数 export_avoided_csv 非空时调用，用于离线固化处理结果。
+  bool exportAvoidedCsv(const std::string & path) const;
+
   // ---- 状态机 ----
   void stepStateMachine();
   void setState(State s);
@@ -109,6 +113,9 @@ private:
   double approach_tolerance_{0.5};
   bool loop_trajectory_{false};
   std::string end_action_{"hold"};
+  // 避障处理结果导出路径（ENU 两行 csv）。非空时在加载+避障完成后落盘，
+  // 用于把"平移+绕行"离线固化成新轨迹文件。留空则完全不产生副作用。
+  std::string export_avoided_csv_;
 
   // ---- 避障 ----
   // 安全圆按 ENU 解释（与 obstacle_visualizer 的参数保持一致），
@@ -118,6 +125,12 @@ private:
   std::vector<double> avoidance_obstacles_;
   // 安全圆半径 [m]：以圆心为中心，轨迹点靠近到该半径内即被推出
   double avoidance_radius_{1.5};
+  // 绕行弧走向："short" 走角度差小的一侧（默认，与原行为一致）/ "long" 走
+  // 另一侧。可用 arc_side_by_obstacle_ 按障碍下标逐项覆盖。
+  std::string arc_side_{"short"};
+  // 按障碍下标指定弧向（如 ["short","short","long"]），元素数不足的
+  // 障碍沿用 arc_side_；为空则全部用 arc_side_。
+  std::vector<std::string> arc_side_by_obstacle_;
 
   // ---- 轨迹数据 (NED, 已转换) ----
   std::vector<float> traj_x_;   // North
