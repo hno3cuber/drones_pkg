@@ -74,14 +74,20 @@ ros2 launch drones_pkg trajectory_follower_multi.launch.py
 | --- | --- | --- | --- |
 | trajectory_follower_uav0 | `/fmu` | 1 | ref.csv |
 | trajectory_follower_uav1 | `/px4_1/fmu` | 2 | ref_uav1.csv |
-| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv |
+| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | ref_uav2.csv |
 | trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv |
 
-uav1 跟的 `ref_uav1.csv` 是两步串出来的：`ref.csv` 先在原位置避障，
-结果沿 NED x（North）平移 2m 后再避障导出（见「离线导出避障后轨迹」）。
-第一次用默认 `short`，第二次按障碍指定 `["short", "long", "short"]`。
-终点 ENU(25,8)，比 uav0 整体北移 2m。因平移已烘入文件，
-`uav_config.py` 中它的偏移为 0。
+uav1 / uav2 跟的 `ref_uav1.csv` / `ref_uav2.csv` 都是同一套两步链条串出来的：
+`ref.csv` 先在原位置避障，结果沿 NED x（North）、y（East）平移后再避障导出
+（见「离线导出避障后轨迹」）。第一次用默认 `short`，第二次按障碍指定
+`["short", "long", "short"]`。两机只是平移量不同：
+
+| 机 | NED 平移 (x=North, y=East) | 终点 ENU | 点数 |
+| --- | --- | --- | --- |
+| uav1 | x +2.0 | (25, 8) | 2123 |
+| uav2 | x -1.414, y -1.414 | (23.586, 4.586) | 2015 |
+
+因平移已烘入文件，`uav_config.py` 中它们的偏移均为 0。
 
 ## 实飞航迹可视化
 
@@ -206,6 +212,17 @@ ros2 run drones_pkg trajectory_follower --ros-args \
   -p avoidance_arc_side:=short \
   -p avoidance_arc_side_by_obstacle:="[short, long, short]" \
   -p export_avoided_csv:=$SRC/ref_uav1.csv
+
+# 同一套链条生成 ref_uav2.csv：第 1 步同上，第 2 步换成 NED x/y 各 -1.414
+# （本轮再避障会轮到障碍1（两段）/障碍3，因为平移量不同）
+ros2 run drones_pkg trajectory_follower --ros-args \
+  --params-file $PARAMS \
+  -p trajectory_file:=$SRC/ref_avoided.csv \
+  -p origin_offset_ned_x:=-1.414 \
+  -p origin_offset_ned_y:=-1.414 \
+  -p avoidance_arc_side:=short \
+  -p avoidance_arc_side_by_obstacle:="[short, long, short]" \
+  -p export_avoided_csv:=$SRC/ref_uav2.csv
 ```
 
 导出的结果已含平移（在加载时烘入），因此 `uav_config.py` 中 uav1 指向
