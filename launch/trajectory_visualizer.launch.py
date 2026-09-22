@@ -22,12 +22,15 @@ def _launch_setup(context, *args, **kwargs):
         raise RuntimeError(
             f"未知的 uav='{uav}'，可选：{', '.join(sorted(UAVS))}")
 
-    default_ns, default_sys, default_csv = UAVS[uav]
+    default_ns, default_sys, default_csv, default_off_x = UAVS[uav]
 
-    # 三个覆盖参数留空时回退到 uav 表中的默认值
+    # 四个覆盖参数留空时回退到 uav 表中的默认值
     ns = LaunchConfiguration('node_namespace').perform(context) or default_ns
     sys_str = LaunchConfiguration('target_system').perform(context)
     sys_id = int(sys_str) if sys_str else default_sys
+
+    off_str = LaunchConfiguration('origin_offset_ned_x').perform(context)
+    off_x = float(off_str) if off_str else default_off_x
 
     trajectory = LaunchConfiguration('trajectory_file').perform(context) or \
         os.path.join(pkg_share, 'src', default_csv)
@@ -46,6 +49,8 @@ def _launch_setup(context, *args, **kwargs):
                         'node_namespace': ns,
                         'target_system': sys_id,
                         'trajectory_file': trajectory,
+                        # NED x（North）方向整体平移，用于多架共用同一 csv 时错开
+                        'origin_offset_ned_x': off_x,
                     },
                 ],
             )

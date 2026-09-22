@@ -16,3 +16,11 @@ __pycache__/
 
 # Windows 从压缩包/网络下载时产生的标记文件
 *:Zone.Identifier
+
+# 沙箱内旁路构建产物（--build-base/--install-base/--log-base 指向此处）
+.colcon_build/
+.colcon_install/
+.colcon_log/
+
+# 话题调试转储
+dump.txt

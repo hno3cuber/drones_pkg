@@ -23,12 +23,15 @@ def _launch_setup(context, *args, **kwargs):
         raise RuntimeError(
             f"未知的 uav='{uav}'，可选：{', '.join(sorted(UAVS))}")
 
-    default_ns, default_sys, default_csv = UAVS[uav]
+    default_ns, default_sys, default_csv, default_off_x = UAVS[uav]
 
-    # 三个覆盖参数留空时回退到 uav 表中的默认值
+    # 四个覆盖参数留空时回退到 uav 表中的默认值
     ns = LaunchConfiguration('node_namespace').perform(context) or default_ns
     sys_str = LaunchConfiguration('target_system').perform(context)
     sys_id = int(sys_str) if sys_str else default_sys
+
+    off_str = LaunchConfiguration('origin_offset_ned_x').perform(context)
+    off_x = float(off_str) if off_str else default_off_x
 
     trajectory = LaunchConfiguration('trajectory_file').perform(context) or \
         os.path.join(pkg_share, 'src', default_csv)
@@ -45,6 +48,8 @@ def _launch_setup(context, *args, **kwargs):
                     'node_namespace': ns,
                     'target_system': sys_id,
                     'trajectory_file': trajectory,
+                    # NED x（North）方向整体平移，用于多架共用同一 csv 时错开
+                    'origin_offset_ned_x': off_x,
                 },
             ],
         ),
@@ -81,6 +86,11 @@ def generate_launch_description():
         # 单独覆盖身份（不常用）
         ros2 launch drones_pkg trajectory_follower.launch.py \\
             uav:=uav1 node_namespace:=/fmu target_system:=1
+
+        # NED x 偏移会自动取 uav_config.py 中该机的值（uav1 默认 +2.0，
+        # 即整体往北平移 2m）；也可手动覆盖：
+        ros2 launch drones_pkg trajectory_follower.launch.py \\
+            uav:=uav1 origin_offset_ned_x:=3.0
     """
     pkg_share = get_package_share_directory('drones_pkg')
     default_params = os.path.join(pkg_share, 'params', 'trajectory_follower.yaml')
@@ -101,6 +111,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'trajectory_file', default_value='',
             description='覆盖轨迹文件绝对路径（留空则用 src/<uav>.csv）'),
+        DeclareLaunchArgument(
+            'origin_offset_ned_x', default_value='',
+            description='覆盖 NED x（North）方向平移 [m]（留空则用 uav 表的值）'),
         DeclareLaunchArgument(
             'params_file', default_value=default_params,
             description='参数文件路径（两个节点共用）'),

@@ -47,14 +47,17 @@ ros2 launch drones_pkg trajectory_follower.launch.py
 ros2 launch drones_pkg trajectory_follower_multi.launch.py
 ```
 
-多机模式下四架的身份与轨迹对应关系：
+多机模式下四架的身份与轨迹对应关系（事实源为 `launch/uav_config.py`）：
 
-| 节点名 | node_namespace | target_system | 轨迹 |
-| --- | --- | --- | --- |
-| trajectory_follower_uav0 | `/fmu` | 1 | ref.csv |
-| trajectory_follower_uav1 | `/px4_1/fmu` | 2 | uav1.csv |
-| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv |
-| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv |
+| 节点名 | node_namespace | target_system | 轨迹 | NED x 偏移 |
+| --- | --- | --- | --- | --- |
+| trajectory_follower_uav0 | `/fmu` | 1 | ref.csv | 0 |
+| trajectory_follower_uav1 | `/px4_1/fmu` | 2 | ref.csv | +2.0 |
+| trajectory_follower_uav2 | `/px4_2/fmu` | 3 | uav2.csv | 0 |
+| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv | 0 |
+
+uav1 与 uav0 共用 `ref.csv`，靠 `origin_offset_ned_x = 2.0` 沿 NED 的
+x 轴（North）整体平移 2m，避免同轨迹相撞。
 
 ## 实飞航迹可视化
 
@@ -99,8 +102,8 @@ ros2 launch drones_pkg trajectory_visualizer.launch.py visualizer_only:=true
 | `dt` | `0.1` | 相邻点时间步长 [s]（csv 无时间列时使用） |
 | `frame_is_enu` | `true` | 输入是否为 ENU |
 | `flight_altitude` | `5.0` | 目标飞行高度 [m] |
-| `origin_offset_ned_x` | `0.0` | 轨迹原点相对起飞点的 NED x 偏移 [m] |
-| `origin_offset_ned_y` | `0.0` | 轨迹原点相对起飞点的 NED y 偏移 [m] |
+| `origin_offset_ned_x` | `0.0` | 轨迹沿 NED x 轴（North）的整体平移 [m]；多机共用同一 csv 时用它错开（uav1 为 2.0） |
+| `origin_offset_ned_y` | `0.0` | 轨迹沿 NED y 轴（East）的整体平移 [m] |
 | `approach_speed` | `2.0` | 飞向轨迹起点的速度 [m/s] |
 | `setpoint_rate_hz` | `20.0` | setpoint 发布频率 [Hz]，需 > 2Hz |
 | `approach_tolerance` | `0.5` | 判定到达轨迹起点的位置容差 [m] |

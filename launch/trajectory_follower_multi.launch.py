@@ -24,7 +24,9 @@ def generate_launch_description():
     params_file = os.path.join(pkg_share, 'params', 'trajectory_follower.yaml')
     src_dir = os.path.join(pkg_share, 'src')
 
-    def follower(name, namespace, sys_id, csv_name):
+    # 入参顺序与 UAVS 表中的字段一一对应（namespace, sys_id, csv, ned_x_offset）。
+    # 改动 uav_config.py 的字段时，这里必须同步，否则 * 解包会静默错位。
+    def follower(name, namespace, sys_id, csv_name, ned_x_offset):
         return Node(
             package='drones_pkg',
             executable='trajectory_follower',
@@ -36,6 +38,8 @@ def generate_launch_description():
                     'node_namespace': namespace,
                     'target_system': sys_id,
                     'trajectory_file': os.path.join(src_dir, csv_name),
+                    # NED x（North）方向整体平移，用于多架共用同一 csv 时错开
+                    'origin_offset_ned_x': ned_x_offset,
                 },
             ],
         )
@@ -44,7 +48,6 @@ def generate_launch_description():
         follower(name, *UAVS[name])
         for name in UAV_ORDER
     ]
-
     # 四条实飞航迹：一个 visualizer 订阅全部命名空间
     namespaces = [UAVS[name][0] for name in UAV_ORDER]
     nodes.append(Node(
