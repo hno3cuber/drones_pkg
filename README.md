@@ -75,17 +75,19 @@ ros2 launch drones_pkg trajectory_follower_multi.launch.py
 | trajectory_follower_uav0 | `/fmu` | 1 | ref.csv |
 | trajectory_follower_uav1 | `/px4_1/fmu` | 2 | ref_uav1.csv |
 | trajectory_follower_uav2 | `/px4_2/fmu` | 3 | ref_uav2.csv |
-| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | uav3.csv |
+| trajectory_follower_uav3 | `/px4_3/fmu` | 4 | ref_uav3.csv |
 
-uav1 / uav2 跟的 `ref_uav1.csv` / `ref_uav2.csv` 都是同一套两步链条串出来的：
-`ref.csv` 先在原位置避障，结果沿 NED x（North）、y（East）平移后再避障导出
-（见「离线导出避障后轨迹」）。第一次用默认 `short`，第二次按障碍指定
-`["short", "long", "short"]`。两机只是平移量不同：
+uav1 / uav2 / uav3 跟的 `ref_uav1.csv` / `ref_uav2.csv` / `ref_uav3.csv` 都是同一套
+两步链条串出来的：`ref.csv` 先在原位置避障，结果沿 NED x（North）、y（East）
+平移后再避障导出（见「离线导出避障后轨迹」）。第一次用默认 `short`，第二次按障碍
+逐个指定弧向（uav1/uav2 用 `["short", "long", "short"]`，uav3 用
+`["short", "short", "short"]`，原因见下）。三机只是平移量不同：
 
-| 机 | NED 平移 (x=North, y=East) | 终点 ENU | 点数 |
-| --- | --- | --- | --- |
-| uav1 | x +2.0 | (25, 8) | 2123 |
-| uav2 | x -1.414, y -1.414 | (23.586, 4.586) | 2015 |
+| 机 | NED 平移 (x=North, y=East) | ENU 平移 (x=East, y=North) | 终点 ENU | 点数 |
+| --- | --- | --- | --- | --- |
+| uav1 | x +2.0 | y +2.0 | (25, 8) | 2123 |
+| uav2 | x -1.414, y -1.414 | x -1.414, y -1.414 | (23.586, 4.586) | 2015 |
+| uav3 | x -1.414, y +1.414 | x +1.414, y -1.414 | (26.414, 4.586) | 1909 |
 
 因平移已烘入文件，`uav_config.py` 中它们的偏移均为 0。
 
@@ -213,7 +215,7 @@ ros2 run drones_pkg trajectory_follower --ros-args \
   -p avoidance_arc_side_by_obstacle:="[short, long, short]" \
   -p export_avoided_csv:=$SRC/ref_uav1.csv
 
-# 同一套链条生成 ref_uav2.csv：第 1 步同上，第 2 步换成 NED x/y 各 -1.414
+# 同一套链条生成 ref_uav2.csv：第 2 步换成 NED x/y 各 -1.414
 # （本轮再避障会轮到障碍1（两段）/障碍3，因为平移量不同）
 ros2 run drones_pkg trajectory_follower --ros-args \
   --params-file $PARAMS \
@@ -223,10 +225,23 @@ ros2 run drones_pkg trajectory_follower --ros-args \
   -p avoidance_arc_side:=short \
   -p avoidance_arc_side_by_obstacle:="[short, long, short]" \
   -p export_avoided_csv:=$SRC/ref_uav2.csv
+
+# 同一套链条生成 ref_uav3.csv：第 2 步换成 NED x -1.414、y +1.414
+# （注意 NED x=North、y=East，对应 ENU 平移 x +1.414、y -1.414）
+# 弧向用 [short, short, short]：这里的障碍2 进出点只差 29.5°，若用 long 会从另一侧
+# 绕 330°（近整整一圈，多飞 28.5s），short 收成 29.5° 小弧
+ros2 run drones_pkg trajectory_follower --ros-args \
+  --params-file $PARAMS \
+  -p trajectory_file:=$SRC/ref_avoided.csv \
+  -p origin_offset_ned_x:=-1.414 \
+  -p origin_offset_ned_y:=1.414 \
+  -p avoidance_arc_side:=short \
+  -p avoidance_arc_side_by_obstacle:="[short, short, short]" \
+  -p export_avoided_csv:=$SRC/ref_uav3.csv
 ```
 
-导出的结果已含平移（在加载时烘入），因此 `uav_config.py` 中 uav1 指向
-`ref_uav1.csv` 时它的偏移为 `0.0`（不能再加，否则平移两次）。
+导出的结果已含平移（在加载时烘入），因此 `uav_config.py` 中 uav1/uav2/uav3 指向
+各自的 ref_uavN.csv 时偏移为 `0.0`（不能再加，否则平移两次）。
 
 以下参数仅供 `trajectory_visualizer` 使用：
 
