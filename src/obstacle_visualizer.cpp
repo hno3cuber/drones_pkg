@@ -5,19 +5,24 @@
 // 设计要点:
 //   1. 纯粹的可视化节点，不发布任何控制话题、不订阅任何飞行数据，
 //      可以在飞行过程中随时启动/退出，不影响控制链路。
-//   2. 内容都是静态的：只在启动时构建一次 MarkerArray，随后低频率
-//      周期性重发，publisher 设为 transient_local，晚启动的 RViz
-//      也能立刻拿到完整内容。
-//   3. 坐标系默认 "map"，与 trajectory_visualizer 保持一致；位置按
+//   2. 内容都是静态的：只在启动时构建一次，随后低频率周期性重发，
+//      publisher 设为 transient_local，晚启动的 RViz 也能立刻拿到。
+//   3. 障碍物与参考轨迹线分开发布，各用一条独立话题：
+//        ~/markers         圆柱障碍物
+//        ~/reference_path  参考轨迹线
+//      这样在 RViz 里可以独立 Add / 移除，修改其中一项也不必重建另一项。
+//   4. 坐标系默认 "map"，与 trajectory_visualizer 保持一致；位置按
 //      ENU (x=East, y=North, z=Up) 解释，圆柱底面贴地。
-//   4. 圆柱用 visualization_msgs/Cylinder marker 表示：scale.x/y 是直径，
+//   5. 圆柱用 visualization_msgs/Cylinder marker 表示：scale.x/y 是直径，
 //      scale.z 是高度，而 marker 的 pose.position 是几何中心，因此
 //      中心 z = obstacle_height / 2 才能让底面落在 z=0。
-//   5. 轨迹线用 LINE_STRIP marker 表示，数据来自两行格式的 csv
+//   6. 轨迹线用 LINE_STRIP marker 表示，数据来自两行格式的 csv
 //      （第一行 x，第二行 y），逐列配对成 (x_i, y_i)，与
 //      trajectory_follower 认的 csv 格式一致。
 
 #include "drones_pkg/obstacle_visualizer.hpp"
+
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -41,10 +46,12 @@ ObstacleVisualizer::ObstacleVisualizer(const rclcpp::NodeOptions & options)
 {
   declareParameters();
 
-  // transient_local + KeepLast(1)：RViz 后启动也能拿到最近一次的完整列表，
-  // 因此不需要高频率重发。
+  // transient_local + KeepLast(1)：RViz 后启动也能拿到最近一次的完整内容，
+  // 因此不需要高频率重发。两条话题各自独立。
   pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
     "~/markers", rclcpp::QoS(1).transient_local());
+  path_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+    "~/reference_path", rclcpp::QoS(1).transient_local());
 
   buildMarkers();
 
@@ -54,24 +61,34 @@ ObstacleVisualizer::ObstacleVisualizer(const rclcpp::NodeOptions & options)
   timer_ = create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::duration<double>(period)),
-    [this]() {pub_->publish(markers_);});
+    [this]() {
+      pub_->publish(markers_);
+      if (!path_markers_.markers.empty()) {
+        path_pub_->publish(path_markers_);
+      }
+    });
 
   // 立即发一次，不必等第一个定时器周期
   pub_->publish(markers_);
+  if (!path_markers_.markers.empty()) {
+    path_pub_->publish(path_markers_);
+  }
 
   RCLCPP_INFO(
     get_logger(), "obstacle_visualizer started: %zu obstacle(s), %zu path point(s), "
     "frame=%s, radius=%.2fm, height=%.2fm",
     obstacles_.size(), path_points_.size(), frame_id_.c_str(), radius_, height_);
+  RCLCPP_INFO(get_logger(), "  RViz add: MarkerArray[~/markers] (obstacles)");
+  if (!path_points_.empty()) {
+    RCLCPP_INFO(
+      get_logger(), "  RViz add: MarkerArray[~/reference_path] (%zu points from '%s', "
+      "altitude=%.2fm)",
+      path_points_.size(), path_file_.c_str(), path_altitude_);
+  }
   for (size_t i = 0; i < obstacles_.size(); ++i) {
     RCLCPP_INFO(
       get_logger(), "  obstacle %zu at (%.2f, %.2f), cylinder z=[0, %.2f]",
       i, obstacles_[i].first, obstacles_[i].second, height_);
-  }
-  if (!path_points_.empty()) {
-    RCLCPP_INFO(
-      get_logger(), "  reference path from '%s': %zu points, altitude=%.2fm",
-      path_file_.c_str(), path_points_.size(), path_altitude_);
   }
 }
 
@@ -128,6 +145,10 @@ void ObstacleVisualizer::declareParameters()
   }
 
   // 轨迹线：有文件就解析，没有就跳过（不报错，障碍物照常画）
+  if (path_file_.empty()) {
+    // 未显式指定时，退回包内自带的 src/ref.csv（与 launch 的默认行为一致）
+    path_file_ = defaultPackageCsvPath();
+  }
   if (!path_file_.empty()) {
     path_points_ = loadTwoRowCsv(path_file_);
     if (path_points_.empty()) {
@@ -135,6 +156,22 @@ void ObstacleVisualizer::declareParameters()
         get_logger(), "轨迹文件 '%s' 未解析出任何点，将不画参考轨迹",
         path_file_.c_str());
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 包内默认 csv 路径
+// ---------------------------------------------------------------------------
+// 用 ament_index 反查本包的 share 目录，拼出 install/share/.../src/ref.csv。
+// 拿不到 share 目录（例如未安装）时返回空串，节点会跳过画线而不报错。
+std::string ObstacleVisualizer::defaultPackageCsvPath()
+{
+  try {
+    const std::string share = ament_index_cpp::get_package_share_directory("drones_pkg");
+    return share + "/src/ref.csv";
+  } catch (const std::exception & e) {
+    RCLCPP_DEBUG(get_logger(), "未找到包 share 目录: %s", e.what());
+    return "";
   }
 }
 
@@ -208,6 +245,7 @@ void ObstacleVisualizer::buildMarkers()
 {
   markers_.markers.clear();
   markers_.markers.reserve(obstacles_.size());
+  path_markers_.markers.clear();
 
   const auto stamp = now();
 
@@ -242,7 +280,7 @@ void ObstacleVisualizer::buildMarkers()
     markers_.markers.push_back(std::move(m));
   }
 
-  // ---- 参考轨迹线 ----
+  // ---- 参考轨迹线（独立话题，单独一个 MarkerArray）----
   if (path_points_.size() >= 2) {
     visualization_msgs::msg::Marker line;
     line.header.stamp = stamp;
@@ -270,7 +308,7 @@ void ObstacleVisualizer::buildMarkers()
       line.points.push_back(q);
     }
 
-    markers_.markers.push_back(std::move(line));
+    path_markers_.markers.push_back(std::move(line));
   }
 }
 

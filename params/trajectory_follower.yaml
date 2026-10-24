@@ -183,6 +183,51 @@ obstacle_visualizer:
     path_alpha: 1.00
 
 
+# ---------------------------------------------------------------------------
+# uav_link_visualizer
+# 订阅各架无人机实时位置，启动后每架取第一帧有效位置作快照（不再更新），
+# 给每架打一个点，再把所有点两两连起来（完全图 K_n）。不参与控制。
+# ---------------------------------------------------------------------------
+uav_link_visualizer:
+  ros__parameters:
+    # RViz 可视坐标系，与其它可视化节点保持一致
+    frame_id: "map"
+
+    # 各架 PX4 实例命名空间列表。节点订阅 <ns>/out/vehicle_local_position_v1。
+    # 单机为 ["/fmu"]；四机为下面这组。
+    uav_namespaces: ["/fmu", "/px4_1/fmu", "/px4_2/fmu", "/px4_3/fmu"]
+
+    # 点与连线统一所在高度 [m]（ENU 的 z）。不使用飞机实时高度，
+    # 四个点都被钉在这一水平面上。
+    point_altitude: 5.0
+
+    # 点大小 [m]（SPHERE 的 scale.x）
+    point_size: 0.4
+
+    # 连线线宽 [m]（LINE_LIST 的 scale.x）
+    line_width: 0.08
+
+    # true 全连接（C(n,2) 条边）；false 只连相邻序号 (0-1, 1-2, ...)
+    connect_all: true
+
+    # 点的透明度（颜色按序号自动分配，四机依次为红/绿/蓝/黄）
+    point_alpha: 1.0
+
+    # 连线颜色与透明度（所有边共用一个颜色）
+    link_color_r: 0.90
+    link_color_g: 0.90
+    link_color_b: 0.95
+    link_alpha: 0.85
+
+    # 等待快照的超时 [s]。超时后仍缺的点不再等，有几架画几架；
+    # 0 表示无限等待。
+    snapshot_timeout_s: 5.0
+
+    # MarkerArray 重发频率 [Hz]；publisher 为 transient_local，
+    # 这里只是兜底，保证 RViz 中途重载配置后仍能看到内容。
+    publish_rate_hz: 1.0
+
+
 trajectory_plotter:
   ros__parameters:
     # ------------------------------------------------------------------

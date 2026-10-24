@@ -11,6 +11,7 @@ find_package(px4_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # 轨迹文件路径通过参数 trajectory_file 传入（见 launch / params）
 add_executable(trajectory_follower src/trajectory_follower.cpp)
@@ -23,9 +24,13 @@ ament_target_dependencies(trajectory_visualizer rclcpp px4_msgs nav_msgs visuali
 
 add_executable(obstacle_visualizer src/obstacle_visualizer.cpp)
 target_include_directories(obstacle_visualizer PRIVATE include)
-ament_target_dependencies(obstacle_visualizer rclcpp visualization_msgs)
+ament_target_dependencies(obstacle_visualizer rclcpp visualization_msgs ament_index_cpp)
 
-install(TARGETS trajectory_follower trajectory_visualizer obstacle_visualizer
+add_executable(uav_link_visualizer src/uav_link_visualizer.cpp)
+target_include_directories(uav_link_visualizer PRIVATE include)
+ament_target_dependencies(uav_link_visualizer rclcpp px4_msgs visualization_msgs)
+
+install(TARGETS trajectory_follower trajectory_visualizer obstacle_visualizer uav_link_visualizer
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch params

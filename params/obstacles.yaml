@@ -1,0 +1,17 @@
+# Gazebo 障碍物世界 + RViz 障碍物可视化的唯一数据源。
+#
+# 这里的每一个圆，同时用于两处：
+#   1) scripts/gen_world.py 生成带 collision 的 Gazebo world（真会撞上）
+#   2) 人工对照 params/trajectory_follower.yaml 里的 avoidance_obstacles /
+#      obstacles 两处扁平数组（RViz 可视化与避障安全圆）
+# 改障碍只改这一个文件；坐标约定为 Gazebo 世界系 ENU（x=东, y=北, z=上）。
+#
+# 字段：
+#   x, y    : 圆心平面坐标 [m]
+#   radius  : 圆柱半径 [m]
+#   height  : 圆柱高度 [m]，底面贴地，占据 z ∈ [0, height]
+
+obstacles:
+  - {x: 4.0,  y: 4.0,  radius: 0.75, height: 5.0}
+  - {x: 7.0,  y: 7.0,  radius: 0.75, height: 5.0}
+  - {x: 15.0, y: 4.0,  radius: 0.75, height: 5.0}

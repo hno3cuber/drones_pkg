@@ -6,8 +6,9 @@
 // MarkerArray，因此可以随时启动或退出，不影响飞行。
 //
 // Publishes:
-//   ~/markers   visualization_msgs/MarkerArray   圆柱障碍物 + 参考轨迹线
-//               （transient_local）
+//   ~/markers          visualization_msgs/MarkerArray   圆柱障碍物（transient_local）
+//   ~/reference_path   visualization_msgs/MarkerArray   参考轨迹线（transient_local）
+//                     两条话题独立，RViz 里可分别 Add / 移除。
 //
 // 参数:
 //   frame_id             可视坐标系，默认 "map"
@@ -42,13 +43,17 @@ public:
 private:
   void declareParameters();
 
-  /// 依据 obstacles_ / radius_ / height_ 生成一次完整的 MarkerArray。
-  /// 障碍物是静态的，因此只在启动时构建一次，之后周期重发同一份数据。
+  /// 依据 obstacles_ / radius_ / height_ 生成障碍物 marker，
+  /// 依据 path_points_ 生成轨迹线 marker（分别存入 markers_ 和 path_markers_）。
+  /// 内容都是静态的，因此只在启动时构建一次，之后周期重发同一份数据。
   void buildMarkers();
 
   /// 读取两行 x/y 格式的 csv（第一行 x，第二行 y），逐列配对为点。
   /// 解析失败或行列数不一致时抛异常，由 main 捕获后退出。
   static std::vector<std::pair<double, double>> loadTwoRowCsv(const std::string & file);
+
+  /// 本包 share 目录下的默认轨迹文件 src/ref.csv 绝对路径；拿不到时返回空串。
+  std::string defaultPackageCsvPath();
 
   // ---- 参数 ----
   std::string frame_id_{"map"};
@@ -76,8 +81,12 @@ private:
   // ---- 状态 ----
   /// 参考轨迹点 (x, y)，由 path_file_ 解析得到；为空则不画线
   std::vector<std::pair<double, double>> path_points_;
+  /// 障碍物 marker（~/markers）
   visualization_msgs::msg::MarkerArray markers_;
+  /// 参考轨迹线 marker（~/reference_path）
+  visualization_msgs::msg::MarkerArray path_markers_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr path_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

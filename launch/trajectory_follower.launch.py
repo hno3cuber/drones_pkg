@@ -87,8 +87,7 @@ def generate_launch_description():
         ros2 launch drones_pkg trajectory_follower.launch.py \\
             uav:=uav1 node_namespace:=/fmu target_system:=1
 
-        # NED x 偏移会自动取 uav_config.py 中该机的值（uav1 默认 +2.0，
-        # 即整体往北平移 2m）；也可手动覆盖：
+        # NED x 偏移自动取 uav_config.py 中该机的值（现均为 0.0）；也可覆盖：
         ros2 launch drones_pkg trajectory_follower.launch.py \\
             uav:=uav1 origin_offset_ned_x:=3.0
     """
